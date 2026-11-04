@@ -9,6 +9,7 @@ type Config struct {
 	HTTPAddr       string
 	DatabaseURL    string
 	FlightGRPCAddr string
+	JWTSecret      string
 }
 
 func Load() (Config, error) {
@@ -20,6 +21,10 @@ func Load() (Config, error) {
 	if flightAddr == "" {
 		return Config{}, fmt.Errorf("FLIGHT_GRPC_ADDR is required")
 	}
+	secret := os.Getenv("FLIGHT_JWT_SECRET")
+	if secret == "" {
+		return Config{}, fmt.Errorf("FLIGHT_JWT_SECRET is required")
+	}
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
 		addr = ":8080"
@@ -28,5 +33,6 @@ func Load() (Config, error) {
 		HTTPAddr:       addr,
 		DatabaseURL:    databaseURL,
 		FlightGRPCAddr: flightAddr,
+		JWTSecret:      secret,
 	}, nil
 }

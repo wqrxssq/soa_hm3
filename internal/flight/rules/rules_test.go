@@ -3,6 +3,9 @@ package rules
 import (
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/shopspring/decimal"
 
 	"flightbooking/internal/flight/ferr"
 )
@@ -52,5 +55,48 @@ func TestEvaluateRelease(t *testing.T) {
 	var target *ferr.Error
 	if !errors.As(err, &target) || target.Kind != ferr.KindPrecondition {
 		t.Fatalf("expired: %v", err)
+	}
+}
+
+func TestDepartureDayUsesUTC(t *testing.T) {
+	utc := time.Date(2026, 4, 1, 23, 30, 0, 0, time.UTC)
+	moscow := time.Date(2026, 4, 2, 2, 30, 0, 0, time.FixedZone("MSK", 3*60*60))
+	if !DepartureDay(utc).Equal(DepartureDay(moscow)) {
+		t.Fatalf("%s и %s разошлись", DepartureDay(utc), DepartureDay(moscow))
+	}
+	next := time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)
+	if DepartureDay(utc).Equal(DepartureDay(next)) {
+		t.Fatal("следующий день совпал")
+	}
+}
+
+func TestValidateUpdate(t *testing.T) {
+	current := time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC)
+	departure := time.Date(2026, 4, 1, 9, 15, 0, 0, time.UTC)
+	arrival := time.Date(2026, 4, 1, 13, 0, 0, 0, time.UTC)
+	price := decimal.RequireFromString("10.50")
+	if err := ValidateUpdate(current, departure, arrival, price, "SCHEDULED"); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name      string
+		departure time.Time
+		arrival   time.Time
+		price     decimal.Decimal
+		status    string
+	}{
+		{name: "other day", departure: departure.Add(24 * time.Hour), arrival: arrival.Add(24 * time.Hour), price: price, status: "SCHEDULED"},
+		{name: "arrival", departure: arrival, arrival: departure, price: price, status: "SCHEDULED"},
+		{name: "price", departure: departure, arrival: arrival, price: decimal.Zero, status: "SCHEDULED"},
+		{name: "status", departure: departure, arrival: arrival, price: price, status: "BOARDING"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateUpdate(current, test.departure, test.arrival, test.price, test.status)
+			var target *ferr.Error
+			if !errors.As(err, &target) || target.Kind != ferr.KindInvalid {
+				t.Fatal(err)
+			}
+		})
 	}
 }

@@ -174,6 +174,26 @@ func (s *Store) Release(ctx context.Context, bookingID string) (Reservation, err
 	return out, nil
 }
 
+func (s *Store) Update(ctx context.Context, id string, price decimal.Decimal, status string, departure, arrival time.Time) (Flight, error) {
+	price = price.Round(2)
+	current, err := s.Get(ctx, id)
+	if err != nil {
+		return Flight{}, err
+	}
+	if err := rules.ValidateUpdate(current.DepartureAt, departure, arrival, price, status); err != nil {
+		return Flight{}, err
+	}
+	return scanFlight(s.db.Query().QueryRow(ctx, `
+		UPDATE flights
+		SET price = $2,
+		    status = $3::flight_status,
+		    departure_at = $4,
+		    arrival_at = $5
+		WHERE id = $1::uuid
+		RETURNING `+flightColumns+`
+	`, id, price.StringFixed(2), status, departure.UTC(), arrival.UTC()))
+}
+
 const flightColumns = `
 	id::text, flight_number, TRIM(origin_iata), TRIM(destination_iata),
 	departure_at, arrival_at, total_seats, available_seats, price::text, status::text

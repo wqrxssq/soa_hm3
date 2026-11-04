@@ -31,7 +31,7 @@ func main() {
 	}
 	defer st.Close()
 
-	flights, err := flightclient.Dial(cfg.FlightGRPCAddr)
+	flights, err := flightclient.Dial(cfg.FlightGRPCAddr, cfg.JWTSecret)
 	if err != nil {
 		log.Fatal(err)
 	}
