@@ -6,14 +6,11 @@ option go_package = "flightbooking/internal/flightv1;flightv1";
 
 import "google/protobuf/timestamp.proto";
 
-// FlightService хранит рейсы и резервации мест.
-// Контракт описывает операции предметной области, а не строки таблиц.
 service FlightService {
   rpc SearchFlights(SearchFlightsRequest) returns (SearchFlightsResponse);
   rpc GetFlight(GetFlightRequest) returns (Flight);
   rpc ReserveSeats(ReserveSeatsRequest) returns (SeatReservation);
   rpc ReleaseReservation(ReleaseReservationRequest) returns (SeatReservation);
-  // Меняет цену, статус и время. Номер рейса, маршрут, дату вылета и total_seats не меняет.
   rpc UpdateFlight(UpdateFlightRequest) returns (Flight);
 }
 
@@ -41,7 +38,7 @@ message Flight {
   google.protobuf.Timestamp arrival_at = 6;
   int32 total_seats = 7;
   int32 available_seats = 8;
-  // Десятичная цена с двумя знаками, без двоичного округления.
+  // Десятичная строка.
   string price = 9;
   FlightStatus status = 10;
 }
@@ -49,7 +46,7 @@ message Flight {
 message SearchFlightsRequest {
   string origin = 1;
   string destination = 2;
-  // Необязательная календарная дата вылета. Берётся день в UTC.
+  // Календарный день в UTC.
   google.protobuf.Timestamp date = 3;
 }
 

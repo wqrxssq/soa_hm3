@@ -13,7 +13,6 @@ type RedisKV struct {
 }
 
 func NewSentinel(masterName string, sentinelAddrs []string) *RedisKV {
-	// Чтение и запись идут в мастер, который выбирает Sentinel.
 	return &RedisKV{client: redis.NewFailoverClient(&redis.FailoverOptions{
 		MasterName:    masterName,
 		SentinelAddrs: sentinelAddrs,

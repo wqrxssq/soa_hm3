@@ -27,6 +27,32 @@ curl -sS http://localhost:8080/health
 curl -sS 'http://localhost:8080/flights?origin=VKO&destination=LED&date=2026-04-01'
 ```
 
+Логи сервисов:
+
+```bash
+docker compose logs flight
+docker compose logs booking
+docker compose logs -f flight booking
+```
+
+У Flight в строке кеша есть `result=hit` или `result=miss` и ключ. У Booking переход breaker выглядит как `CLOSED → OPEN`.
+
+База Booking:
+
+```bash
+docker compose exec booking-postgres psql -U booking -d booking
+```
+
+С хоста: `psql 'postgres://booking:booking@localhost:5432/booking'`.
+
+База Flight:
+
+```bash
+docker compose exec flight-postgres psql -U flight -d flight
+```
+
+С хоста: `psql 'postgres://flight:flight@localhost:5433/flight'`.
+
 Остановка с удалением данных:
 
 ```bash

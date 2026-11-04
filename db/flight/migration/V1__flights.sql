@@ -1,5 +1,3 @@
--- Рейсы и резервации мест. База принадлежит только Flight Service.
-
 CREATE TYPE flight_status AS ENUM ('SCHEDULED', 'DEPARTED', 'CANCELLED', 'COMPLETED');
 CREATE TYPE reservation_status AS ENUM ('ACTIVE', 'RELEASED', 'EXPIRED');
 

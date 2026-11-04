@@ -36,8 +36,7 @@ func Dial(cfg DialConfig) (*Client, error) {
 	if cfg.Secret == "" {
 		return nil, fmt.Errorf("FLIGHT_JWT_SECRET is required")
 	}
-	// Снаружи circuit breaker, затем retry, ближе к транспорту JWT.
-	// Каждый повтор подписывается заново, а breaker считает итог попыток одним вызовом.
+	// Breaker снаружи retry, JWT внутри каждого повтора.
 	conn, err := grpc.NewClient(
 		cfg.Addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),

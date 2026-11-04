@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Сценарии Booking Service против уже поднятого docker compose."""
+"""e2e против поднятого compose."""
 
 import json
 import os

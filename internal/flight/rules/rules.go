@@ -26,7 +26,7 @@ func EvaluateReserve(status string, available, requested int) error {
 	return nil
 }
 
-// MatchExistingReserve решает, можно ли повторить ReserveSeats, не списывая места ещё раз.
+// true — вернуть активную резервацию и не менять места.
 func MatchExistingReserve(status, existingFlightID, flightID string, existingSeats, seatCount int) (bool, error) {
 	switch status {
 	case "ACTIVE":

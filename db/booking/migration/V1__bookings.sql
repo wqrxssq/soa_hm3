@@ -1,4 +1,4 @@
--- Бронирования. Рейс здесь только логический идентификатор Flight Service.
+-- flight_id без внешнего ключа.
 
 CREATE TYPE booking_status AS ENUM ('CONFIRMED', 'CANCELLED');
 
