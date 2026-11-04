@@ -1,0 +1,89 @@
+services:
+  booking-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: booking
+      POSTGRES_PASSWORD: booking
+      POSTGRES_DB: booking
+    ports:
+      - "5432:5432"
+    command: ["postgres", "-c", "timezone=UTC"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U booking -d booking"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  flight-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: flight
+      POSTGRES_PASSWORD: flight
+      POSTGRES_DB: flight
+    ports:
+      - "5433:5432"
+    command: ["postgres", "-c", "timezone=UTC"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flight -d flight"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  flyway-booking:
+    image: flyway/flyway:11
+    depends_on:
+      booking-postgres:
+        condition: service_healthy
+    command: -url=jdbc:postgresql://booking-postgres:5432/booking -user=booking -password=booking -connectRetries=20 migrate
+    volumes:
+      - ./db/booking/migration:/flyway/sql
+
+  flyway-flight:
+    image: flyway/flyway:11
+    depends_on:
+      flight-postgres:
+        condition: service_healthy
+    command: -url=jdbc:postgresql://flight-postgres:5432/flight -user=flight -password=flight -connectRetries=20 migrate
+    volumes:
+      - ./db/flight/migration:/flyway/sql
+
+  flight:
+    build:
+      context: .
+      dockerfile: docker/flight/Dockerfile
+    ports:
+      - "9090:9090"
+      - "8081:8081"
+    environment:
+      DATABASE_URL: postgres://flight:flight@flight-postgres:5432/flight?sslmode=disable
+      GRPC_ADDR: ":9090"
+      HEALTH_ADDR: ":8081"
+    depends_on:
+      flyway-flight:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8081/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  booking:
+    build:
+      context: .
+      dockerfile: docker/booking/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://booking:booking@booking-postgres:5432/booking?sslmode=disable
+      HTTP_ADDR: ":8080"
+      FLIGHT_GRPC_ADDR: flight:9090
+    depends_on:
+      flyway-booking:
+        condition: service_completed_successfully
+      flight:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

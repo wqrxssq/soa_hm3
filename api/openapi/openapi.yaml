@@ -1,0 +1,356 @@
+openapi: 3.0.3
+info:
+  title: Booking Service API
+  version: 1.0.0
+  description: |
+    REST API бронирования. Рейсы читаются из Flight Service.
+    `user_id` передаёт клиент: регистрации и проверки владельца нет.
+
+servers:
+  - url: /
+
+tags:
+  - name: meta
+  - name: flights
+  - name: bookings
+
+paths:
+  /health:
+    get:
+      tags: [meta]
+      operationId: health
+      summary: Проверка процесса
+      responses:
+        "200":
+          description: Процесс отвечает
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /flights:
+    get:
+      tags: [flights]
+      operationId: searchFlights
+      summary: Поиск рейсов в статусе SCHEDULED
+      parameters:
+        - $ref: "#/components/parameters/Origin"
+        - $ref: "#/components/parameters/Destination"
+        - $ref: "#/components/parameters/DepartureDate"
+      responses:
+        "200":
+          description: Список рейсов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Flight"
+        "400":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /flights/{id}:
+    get:
+      tags: [flights]
+      operationId: getFlight
+      summary: Рейс по идентификатору
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+      responses:
+        "200":
+          description: Рейс
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Flight"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /bookings:
+    get:
+      tags: [bookings]
+      operationId: listBookings
+      summary: Бронирования пользователя
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Список бронирований
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Booking"
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [bookings]
+      operationId: createBooking
+      summary: Создать бронирование
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingCreate"
+      responses:
+        "201":
+          description: Бронирование создано
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /bookings/{id}:
+    get:
+      tags: [bookings]
+      operationId: getBooking
+      summary: Бронирование по идентификатору
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+      responses:
+        "200":
+          description: Бронирование
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /bookings/{id}/cancel:
+    post:
+      tags: [bookings]
+      operationId: cancelBooking
+      summary: Отменить подтверждённое бронирование
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+      responses:
+        "200":
+          description: Бронирование отменено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+components:
+  parameters:
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Origin:
+      name: origin
+      in: query
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Z]{3}$"
+    Destination:
+      name: destination
+      in: query
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Z]{3}$"
+    DepartureDate:
+      name: date
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date
+
+  responses:
+    Error:
+      description: Ошибка
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error_code, message]
+      properties:
+        error_code:
+          type: string
+          enum:
+            - VALIDATION_ERROR
+            - NOT_FOUND
+            - RESOURCE_EXHAUSTED
+            - FAILED_PRECONDITION
+            - CONFLICT
+            - UNAVAILABLE
+            - INTERNAL_ERROR
+            - METHOD_NOT_ALLOWED
+        message:
+          type: string
+        details:
+          type: object
+          nullable: true
+          additionalProperties: true
+
+    FlightStatus:
+      type: string
+      enum: [SCHEDULED, DEPARTED, CANCELLED, COMPLETED]
+
+    BookingStatus:
+      type: string
+      enum: [CONFIRMED, CANCELLED]
+
+    Flight:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - flight_number
+        - origin
+        - destination
+        - departure_at
+        - arrival_at
+        - total_seats
+        - available_seats
+        - price
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        flight_number:
+          type: string
+        origin:
+          type: string
+        destination:
+          type: string
+        departure_at:
+          type: string
+          format: date-time
+        arrival_at:
+          type: string
+          format: date-time
+        total_seats:
+          type: integer
+        available_seats:
+          type: integer
+        price:
+          type: number
+          format: decimal
+          x-go-type: float64
+        status:
+          $ref: "#/components/schemas/FlightStatus"
+
+    BookingCreate:
+      type: object
+      additionalProperties: false
+      required: [user_id, flight_id, passenger_name, passenger_email, seat_count]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        flight_id:
+          type: string
+          format: uuid
+        passenger_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        passenger_email:
+          type: string
+          format: email
+          maxLength: 255
+        seat_count:
+          type: integer
+          format: int32
+          minimum: 1
+
+    Booking:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - user_id
+        - flight_id
+        - passenger_name
+        - passenger_email
+        - seat_count
+        - total_price
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        flight_id:
+          type: string
+          format: uuid
+        passenger_name:
+          type: string
+        passenger_email:
+          type: string
+          format: email
+        seat_count:
+          type: integer
+        total_price:
+          type: number
+          format: decimal
+          x-go-type: float64
+        status:
+          $ref: "#/components/schemas/BookingStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

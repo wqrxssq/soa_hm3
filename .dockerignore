@@ -1,0 +1,4 @@
+.git
+.tools
+internal/flightv1
+internal/booking/api/openapi.gen.go
