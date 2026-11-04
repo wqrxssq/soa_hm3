@@ -1,0 +1,7 @@
+.tools/
+internal/flightv1/*.pb.go
+internal/booking/api/openapi.gen.go
+.DS_Store
+task.md
+plan.md
+workflow.md

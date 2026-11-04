@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Сценарии Booking Service против уже поднятого docker compose."""
+
+import json
+import os
+import time
+import urllib.error
+import urllib.request
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+
+BASE = os.environ.get("BASE", "http://localhost:8080")
+FLIGHT_HEALTH = os.environ.get("FLIGHT_HEALTH", "http://localhost:8081/health")
+
+SU1001 = "00000000-0000-4000-8000-000000000001"
+SU1002 = "00000000-0000-4000-8000-000000000002"
+SU1003 = "00000000-0000-4000-8000-000000000003"
+SU1004 = "00000000-0000-4000-8000-000000000004"
+SU1005 = "00000000-0000-4000-8000-000000000005"
+
+
+class ApiError(Exception):
+    pass
+
+
+def request(method, path, body=None, expected=200):
+    data = None if body is None else json.dumps(body).encode()
+    headers = {"Content-Type": "application/json"}
+    req = urllib.request.Request(BASE + path, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            raw = response.read()
+            status = response.status
+            payload = json.loads(raw) if raw else None
+    except urllib.error.HTTPError as err:
+        raw = err.read()
+        status = err.code
+        payload = json.loads(raw) if raw else None
+    if status != expected:
+        raise ApiError(f"{method} {path} -> {status}, want {expected}: {payload}")
+    return payload
+
+
+def request_status(method, path, body=None):
+    data = None if body is None else json.dumps(body).encode()
+    headers = {"Content-Type": "application/json"}
+    req = urllib.request.Request(BASE + path, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            raw = response.read()
+            payload = json.loads(raw) if raw else None
+            return response.status, payload
+    except urllib.error.HTTPError as err:
+        raw = err.read()
+        payload = json.loads(raw) if raw else None
+        return err.code, payload
+
+
+def wait_health():
+    deadline = time.time() + 90
+    last = None
+    while time.time() < deadline:
+        try:
+            booking = request("GET", "/health")
+            with urllib.request.urlopen(FLIGHT_HEALTH, timeout=3) as response:
+                flight = json.loads(response.read())
+            if booking.get("status") == "ok" and flight.get("status") == "ok":
+                return
+        except Exception as err:  # noqa: BLE001 - ждём, пока compose поднимется
+            last = err
+        time.sleep(1)
+    raise SystemExit(f"сервисы не поднялись: {last}")
+
+
+def numbers(flights):
+    return [item["flight_number"] for item in flights]
+
+
+def booking_body(user_id, flight_id, seat_count):
+    return {
+        "user_id": user_id,
+        "flight_id": flight_id,
+        "passenger_name": "Ada Lovelace",
+        "passenger_email": f"{user_id[:8]}@example.com",
+        "seat_count": seat_count,
+    }
+
+
+def main():
+    wait_health()
+
+    dated = request("GET", "/flights?origin=VKO&destination=LED&date=2026-04-01")
+    dated_numbers = numbers(dated)
+    if dated_numbers != ["SU1001"]:
+        raise SystemExit(f"поиск на дату: {dated_numbers}")
+
+    undated = request("GET", "/flights?origin=VKO&destination=LED")
+    undated_numbers = numbers(undated)
+    if undated_numbers != ["SU1001", "SU1003"]:
+        raise SystemExit(f"поиск без даты: {undated_numbers}")
+
+    departed = request("GET", f"/flights/{SU1005}")
+    if departed["flight_number"] != "SU1005" or departed["status"] != "DEPARTED":
+        raise SystemExit(f"вылетевший рейс: {departed}")
+
+    missing = request("GET", f"/flights/{uuid.uuid4()}", expected=404)
+    if missing["error_code"] != "NOT_FOUND":
+        raise SystemExit(missing)
+
+    invalid = request("GET", "/flights?destination=LED", expected=400)
+    if invalid["error_code"] != "VALIDATION_ERROR":
+        raise SystemExit(invalid)
+
+    buyer = str(uuid.uuid4())
+    created = request(
+        "POST",
+        "/bookings",
+        booking_body(buyer, SU1002, 2),
+        expected=201,
+    )
+    if created["status"] != "CONFIRMED" or abs(created["total_price"] - 14400) > 0.001:
+        raise SystemExit(f"создание: {created}")
+    if created["user_id"] != buyer or created["seat_count"] != 2:
+        raise SystemExit(f"поля брони: {created}")
+
+    loaded = request("GET", f"/bookings/{created['id']}")
+    if loaded["id"] != created["id"]:
+        raise SystemExit(loaded)
+
+    owned = request("GET", f"/bookings?user_id={buyer}")
+    if [item["id"] for item in owned] != [created["id"]]:
+        raise SystemExit(f"список: {owned}")
+
+    other = request("GET", f"/bookings?user_id={uuid.uuid4()}")
+    if other != []:
+        raise SystemExit(f"чужой список: {other}")
+
+    departed_try = request("POST", "/bookings", booking_body(str(uuid.uuid4()), SU1005, 1), expected=409)
+    if departed_try["error_code"] != "FAILED_PRECONDITION":
+        raise SystemExit(departed_try)
+
+    cancelled_flight = request("POST", "/bookings", booking_body(str(uuid.uuid4()), SU1004, 1), expected=409)
+    if cancelled_flight["error_code"] != "FAILED_PRECONDITION":
+        raise SystemExit(cancelled_flight)
+
+    unknown_flight = request("POST", "/bookings", booking_body(str(uuid.uuid4()), str(uuid.uuid4()), 1), expected=404)
+    if unknown_flight["error_code"] != "NOT_FOUND":
+        raise SystemExit(unknown_flight)
+
+    overflow_user = str(uuid.uuid4())
+    overflow = request("POST", "/bookings", booking_body(overflow_user, SU1001, 6), expected=409)
+    if overflow["error_code"] != "RESOURCE_EXHAUSTED":
+        raise SystemExit(overflow)
+    if request("GET", f"/bookings?user_id={overflow_user}") != []:
+        raise SystemExit("бронирование создано при нехватке мест")
+
+    race_user = str(uuid.uuid4())
+
+    def race_once(_):
+        return request_status("POST", "/bookings", booking_body(race_user, SU1001, 1))
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(race_once, range(8)))
+    successes = [(status, body) for status, body in results if status == 201]
+    exhausted = [(status, body) for status, body in results if status == 409]
+    other_results = [item for item in results if item[0] not in (201, 409)]
+    if other_results or len(successes) != 5 or len(exhausted) != 3:
+        raise SystemExit(f"гонка: success={len(successes)} exhausted={len(exhausted)} other={other_results}")
+    if any(body.get("error_code") != "RESOURCE_EXHAUSTED" for _, body in exhausted):
+        raise SystemExit(exhausted)
+
+    after_race = request("GET", f"/flights/{SU1001}")
+    if after_race["available_seats"] != 0:
+        raise SystemExit(f"остаток после гонки: {after_race}")
+
+    race_list = request("GET", f"/bookings?user_id={race_user}")
+    if len(race_list) != 5:
+        raise SystemExit(f"список гонки: {len(race_list)}")
+
+    cancelled = request("POST", f"/bookings/{successes[0][1]['id']}/cancel")
+    if cancelled["status"] != "CANCELLED":
+        raise SystemExit(cancelled)
+    restored = request("GET", f"/flights/{SU1001}")
+    if restored["available_seats"] != 1:
+        raise SystemExit(f"остаток после отмены: {restored}")
+
+    again = request("POST", f"/bookings/{successes[0][1]['id']}/cancel", expected=409)
+    if again["error_code"] != "CONFLICT":
+        raise SystemExit(again)
+
+    missing_booking = request("GET", f"/bookings/{uuid.uuid4()}", expected=404)
+    if missing_booking["error_code"] != "NOT_FOUND":
+        raise SystemExit(missing_booking)
+
+    still_there = request("GET", f"/flights/{SU1003}")
+    if still_there["available_seats"] != 100:
+        raise SystemExit(still_there)
+
+    print("e2e ok")
+
+
+if __name__ == "__main__":
+    main()
