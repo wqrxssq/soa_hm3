@@ -74,7 +74,7 @@ func ValidateUpdate(currentDeparture, departure, arrival time.Time, price decima
 		return ferr.Invalid("прилёт должен быть позже вылета")
 	}
 	if !DepartureDay(currentDeparture).Equal(DepartureDay(departure)) {
-		return ferr.Invalid("дата вылета должна совпадать с departure_date")
+		return ferr.Invalid("вылет нельзя перенести на другую дату")
 	}
 	return nil
 }

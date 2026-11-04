@@ -129,6 +129,7 @@ services:
       FLIGHT_JWT_SECRET: dev-flight-jwt-secret
       CB_FAILURE_THRESHOLD: 5
       CB_OPEN_TIMEOUT: 15s
+      FLIGHT_CALL_TIMEOUT: 2s
     depends_on:
       flyway-booking:
         condition: service_completed_successfully

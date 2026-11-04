@@ -6,11 +6,46 @@ option go_package = "flightbooking/internal/flightv1;flightv1";
 
 import "google/protobuf/timestamp.proto";
 
+// Любой метод может вернуть:
+//   UNAUTHENTICATED — нет metadata "authorization: Bearer <jwt>" или токен недействителен;
+//   INTERNAL — непредвиденная ошибка сервера.
 service FlightService {
+  // Рейсы в статусе SCHEDULED по маршруту и, если задана, дате вылета.
+  // Ошибки:
+  //   INVALID_ARGUMENT — origin или destination не код IATA, либо они совпадают.
   rpc SearchFlights(SearchFlightsRequest) returns (SearchFlightsResponse);
+
+  // Ошибки:
+  //   INVALID_ARGUMENT — id не UUID;
+  //   NOT_FOUND — рейса нет.
   rpc GetFlight(GetFlightRequest) returns (Flight);
+
+  // Атомарно списывает места и создаёт резервацию.
+  // Идемпотентен по booking_id: повтор с тем же рейсом и числом мест
+  // возвращает активную резервацию и не списывает места ещё раз.
+  // Ошибки:
+  //   INVALID_ARGUMENT — flight_id или booking_id не UUID, seat_count < 1;
+  //   NOT_FOUND — рейса нет;
+  //   FAILED_PRECONDITION — рейс не в статусе SCHEDULED,
+  //     либо резервация с этим booking_id уже снята или просрочена;
+  //   RESOURCE_EXHAUSTED — свободных мест меньше, чем seat_count;
+  //   ALREADY_EXISTS — у booking_id уже есть активная резервация
+  //     с другим рейсом или числом мест.
   rpc ReserveSeats(ReserveSeatsRequest) returns (SeatReservation);
+
+  // Возвращает места и переводит резервацию в RELEASED.
+  // Повторный вызов для снятой резервации возвращает её без изменений.
+  // Ошибки:
+  //   INVALID_ARGUMENT — booking_id не UUID;
+  //   NOT_FOUND — резервации с этим booking_id нет;
+  //   FAILED_PRECONDITION — резервация просрочена (EXPIRED).
   rpc ReleaseReservation(ReleaseReservationRequest) returns (SeatReservation);
+
+  // Меняет цену, статус и время рейса в пределах той же даты вылета (UTC).
+  // Ошибки:
+  //   INVALID_ARGUMENT — id не UUID, цена не положительна, статус не задан,
+  //     прилёт не позже вылета или вылет перенесён на другую дату;
+  //   NOT_FOUND — рейса нет.
   rpc UpdateFlight(UpdateFlightRequest) returns (Flight);
 }
 

@@ -20,8 +20,23 @@ func TestLoadRequiresSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.HTTPAddr != ":8080" || cfg.JWTSecret != "secret" || cfg.CBFailureThreshold != 5 || cfg.CBOpenTimeout != 15*time.Second {
+	if cfg.HTTPAddr != ":8080" || cfg.JWTSecret != "secret" || cfg.CBFailureThreshold != 5 || cfg.CBOpenTimeout != 15*time.Second || cfg.FlightCallTimeout != 2*time.Second {
 		t.Fatalf("%+v", cfg)
+	}
+}
+
+func TestLoadFlightCallTimeout(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("FLIGHT_GRPC_ADDR", "flight:9090")
+	t.Setenv("FLIGHT_JWT_SECRET", "secret")
+	t.Setenv("FLIGHT_CALL_TIMEOUT", "500ms")
+	cfg, err := Load()
+	if err != nil || cfg.FlightCallTimeout != 500*time.Millisecond {
+		t.Fatalf("%+v %v", cfg, err)
+	}
+	t.Setenv("FLIGHT_CALL_TIMEOUT", "0s")
+	if _, err := Load(); err == nil {
+		t.Fatal("нулевой таймаут вызова принят")
 	}
 }
 
