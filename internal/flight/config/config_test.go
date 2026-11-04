@@ -8,7 +8,8 @@ import (
 func TestLoad(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("FLIGHT_JWT_SECRET", "secret")
-	t.Setenv("REDIS_ADDR", "redis:6379")
+	t.Setenv("REDIS_SENTINEL_ADDR", "redis-sentinel:26379")
+	t.Setenv("REDIS_MASTER_NAME", "")
 	t.Setenv("CACHE_TTL", "")
 	t.Setenv("GRPC_ADDR", "")
 	t.Setenv("HEALTH_ADDR", "")
@@ -17,22 +18,36 @@ func TestLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.CacheTTL != 5*time.Minute || cfg.GRPCAddr != ":9090" || cfg.HealthAddr != ":8081" || cfg.JWTSecret != "secret" {
+	if cfg.CacheTTL != 5*time.Minute || cfg.GRPCAddr != ":9090" || cfg.HealthAddr != ":8081" || cfg.JWTSecret != "secret" || cfg.RedisMasterName != "flight-master" || len(cfg.RedisSentinelAddrs) != 1 {
 		t.Fatalf("%+v", cfg)
+	}
+}
+
+func TestLoadSentinelList(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("FLIGHT_JWT_SECRET", "secret")
+	t.Setenv("REDIS_SENTINEL_ADDR", "one:26379, two:26379")
+	t.Setenv("REDIS_MASTER_NAME", "flight-master")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.RedisSentinelAddrs) != 2 || cfg.RedisSentinelAddrs[1] != "two:26379" {
+		t.Fatalf("%v", cfg.RedisSentinelAddrs)
 	}
 }
 
 func TestLoadRequiresSecretAndRedis(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
-	t.Setenv("REDIS_ADDR", "redis:6379")
+	t.Setenv("REDIS_SENTINEL_ADDR", "redis:6379")
 	t.Setenv("FLIGHT_JWT_SECRET", "")
 	if _, err := Load(); err == nil {
 		t.Fatal("пустой секрет принят")
 	}
 	t.Setenv("FLIGHT_JWT_SECRET", "secret")
-	t.Setenv("REDIS_ADDR", "")
+	t.Setenv("REDIS_SENTINEL_ADDR", "")
 	if _, err := Load(); err == nil {
-		t.Fatal("пустой REDIS_ADDR принят")
+		t.Fatal("пустой REDIS_SENTINEL_ADDR принят")
 	}
 }
 
@@ -55,7 +70,7 @@ func TestLoadCacheTTL(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("DATABASE_URL", "postgres://example")
 			t.Setenv("FLIGHT_JWT_SECRET", "secret")
-			t.Setenv("REDIS_ADDR", "redis:6379")
+			t.Setenv("REDIS_SENTINEL_ADDR", "redis:6379")
 			t.Setenv("CACHE_TTL", test.raw)
 			cfg, err := Load()
 			if test.ok {

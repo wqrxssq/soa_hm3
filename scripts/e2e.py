@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Сценарии Booking Service против уже поднятого docker compose."""
+"""e2e против поднятого compose."""
 
 import json
 import os
@@ -83,7 +83,7 @@ def numbers(flights):
 
 def redis_get(key):
     result = subprocess.run(
-        ["docker", "compose", "exec", "-T", "redis", "redis-cli", "GET", key],
+        ["docker", "compose", "exec", "-T", "redis-master", "redis-cli", "GET", key],
         cwd=ROOT,
         capture_output=True,
         text=True,

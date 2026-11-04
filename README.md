@@ -4,7 +4,7 @@
 
 Стек: Go, OpenAPI, gRPC, PostgreSQL, Redis, Flyway.
 
-Вызовы Flight подписаны служебным JWT. Выдача рейсов кешируется в Redis. Retry и circuit breaker появятся следующим проходом.
+Вызовы Flight подписаны служебным JWT. Неудачный вызов повторяется до трёх раз, снаружи стоит circuit breaker. Выдача рейсов кешируется в Redis Sentinel: мастер, реплика и sentinel.
 
 ## Запуск
 
@@ -12,11 +12,13 @@
 docker compose up --build
 ```
 
-Booking слушает `http://localhost:8080`. Служебный health Flight — `http://localhost:8081/health`, gRPC — `localhost:9090`. Redis — `localhost:6379`.
+Booking слушает `http://localhost:8080`. Служебный health Flight — `http://localhost:8081/health`, gRPC — `localhost:9090`. Redis-мастер — `localhost:6379`, реплика — `localhost:6380`, Sentinel — `localhost:26379`.
 
 Базы: `localhost:5432` (`booking` / `booking`) и `localhost:5433` (`flight` / `flight`).
 
 `FLIGHT_JWT_SECRET` общий для обоих сервисов. Пустой секрет не даёт процессу стартануть. `CACHE_TTL` задаёт время жизни ключей кеша, по умолчанию 5 минут, допустимый диапазон — от 5 до 10 минут. В логе Flight у чтения кеша есть `result=hit` или `result=miss` и сам ключ.
+
+Повтор идет только при `UNAVAILABLE` и `DEADLINE_EXCEEDED`: паузы перед второй и третьей попыткой — 100ms и 200ms. `CB_FAILURE_THRESHOLD` по умолчанию 5, `CB_OPEN_TIMEOUT` — 15s. В логе Booking переход пишется как `CLOSED → OPEN`. Пока breaker открыт, клиент получает 503 `SERVICE_UNAVAILABLE`.
 
 Проверка:
 
@@ -24,6 +26,32 @@ Booking слушает `http://localhost:8080`. Служебный health Flight
 curl -sS http://localhost:8080/health
 curl -sS 'http://localhost:8080/flights?origin=VKO&destination=LED&date=2026-04-01'
 ```
+
+Логи сервисов:
+
+```bash
+docker compose logs flight
+docker compose logs booking
+docker compose logs -f flight booking
+```
+
+У Flight в строке кеша есть `result=hit` или `result=miss` и ключ. У Booking переход breaker выглядит как `CLOSED → OPEN`.
+
+База Booking:
+
+```bash
+docker compose exec booking-postgres psql -U booking -d booking
+```
+
+С хоста: `psql 'postgres://booking:booking@localhost:5432/booking'`.
+
+База Flight:
+
+```bash
+docker compose exec flight-postgres psql -U flight -d flight
+```
+
+С хоста: `psql 'postgres://flight:flight@localhost:5433/flight'`.
 
 Остановка с удалением данных:
 
@@ -104,5 +132,7 @@ REST: `api/openapi/openapi.yaml`. gRPC: `api/proto/flight/v1/flight.proto`.
 `user_id` клиент передаёт сам. Сервис не заводит пользователей и не проверяет владельца при чтении и отмене бронирования.
 
 `UpdateFlight` есть только в gRPC. Метод меняет цену, статус и время вылета в пределах той же календарной даты. Номер рейса, маршрут и число мест он не меняет.
+
+Повторный `ReserveSeats` с тем же `booking_id`, рейсом и числом мест возвращает активную резервацию и не списывает места ещё раз.
 
 Демо-рейсы вставляет миграция Flight. `SU1001` (`00000000-0000-4000-8000-000000000001`) — пять мест VKO→LED на 2026-04-01.

@@ -3,6 +3,7 @@ package flightclient
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -23,15 +24,27 @@ type Client struct {
 	conn *grpc.ClientConn
 }
 
-func Dial(addr, secret string) (*Client, error) {
-	if secret == "" {
+type DialConfig struct {
+	Addr               string
+	Secret             string
+	CBFailureThreshold int
+	CBOpenTimeout      time.Duration
+	Logger             *slog.Logger
+}
+
+func Dial(cfg DialConfig) (*Client, error) {
+	if cfg.Secret == "" {
 		return nil, fmt.Errorf("FLIGHT_JWT_SECRET is required")
 	}
-	// JWT стоит ближе к транспорту: каждый вызов, включая будущие повторы, получает новый токен.
+	// Breaker снаружи retry, JWT внутри каждого повтора.
 	conn, err := grpc.NewClient(
-		addr,
+		cfg.Addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithChainUnaryInterceptor(svcjwt.UnaryClientInterceptor(secret)),
+		grpc.WithChainUnaryInterceptor(
+			UnaryBreakerInterceptor(cfg.CBFailureThreshold, cfg.CBOpenTimeout, cfg.Logger),
+			UnaryRetryInterceptor(),
+			svcjwt.UnaryClientInterceptor(cfg.Secret),
+		),
 	)
 	if err != nil {
 		return nil, err
@@ -142,6 +155,9 @@ func mapErr(err error) error {
 	case codes.AlreadyExists:
 		return apperr.New(409, "CONFLICT", st.Message())
 	case codes.Unavailable:
+		if st.Message() == circuitOpenMessage {
+			return apperr.New(503, "SERVICE_UNAVAILABLE", "сервис рейсов временно недоступен")
+		}
 		return apperr.New(503, "UNAVAILABLE", "сервис рейсов недоступен")
 	case codes.DeadlineExceeded:
 		return apperr.New(503, "UNAVAILABLE", "сервис рейсов недоступен")

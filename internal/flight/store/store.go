@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -88,6 +89,13 @@ func (s *Store) Get(ctx context.Context, id string) (Flight, error) {
 func (s *Store) Reserve(ctx context.Context, flightID string, seatCount int, bookingID string) (Reservation, error) {
 	var out Reservation
 	err := s.db.WithinTx(ctx, func(ctx context.Context, q pgdb.DBTX) error {
+		existing, found, err := findReservation(ctx, q, bookingID)
+		if err != nil {
+			return err
+		}
+		if found {
+			return useExisting(&out, existing, flightID, seatCount)
+		}
 		// Блокировка строки рейса сериализует резерв последнего места.
 		flight, err := scanFlight(q.QueryRow(ctx, `
 			SELECT `+flightColumns+`
@@ -98,6 +106,13 @@ func (s *Store) Reserve(ctx context.Context, flightID string, seatCount int, boo
 		if err != nil {
 			return err
 		}
+		existing, found, err = findReservation(ctx, q, bookingID)
+		if err != nil {
+			return err
+		}
+		if found {
+			return useExisting(&out, existing, flightID, seatCount)
+		}
 		if err := rules.EvaluateReserve(flight.Status, flight.AvailableSeats, seatCount); err != nil {
 			return err
 		}
@@ -107,7 +122,14 @@ func (s *Store) Reserve(ctx context.Context, flightID string, seatCount int, boo
 			RETURNING id::text, flight_id::text, booking_id::text, seat_count, status::text
 		`, flightID, bookingID, seatCount))
 		if pgdb.Unique(err) {
-			return ferr.AlreadyExists("резервация уже существует")
+			existing, found, err = findReservation(ctx, q, bookingID)
+			if err != nil {
+				return err
+			}
+			if !found {
+				return ferr.AlreadyExists("резервация уже существует")
+			}
+			return useExisting(&out, existing, flightID, seatCount)
 		}
 		if err != nil {
 			return err
@@ -128,14 +150,12 @@ func (s *Store) Reserve(ctx context.Context, flightID string, seatCount int, boo
 func (s *Store) Release(ctx context.Context, bookingID string) (Reservation, error) {
 	var out Reservation
 	err := s.db.WithinTx(ctx, func(ctx context.Context, q pgdb.DBTX) error {
-		reservation, err := scanReservation(q.QueryRow(ctx, `
-			SELECT id::text, flight_id::text, booking_id::text, seat_count, status::text
-			FROM seat_reservations
-			WHERE booking_id = $1::uuid
-			FOR UPDATE
-		`, bookingID))
+		reservation, found, err := findReservation(ctx, q, bookingID)
 		if err != nil {
 			return err
+		}
+		if !found {
+			return ferr.NotFound("резервация не найдена")
 		}
 		action, err := rules.EvaluateRelease(reservation.Status)
 		if err != nil {
@@ -192,6 +212,35 @@ func (s *Store) Update(ctx context.Context, id string, price decimal.Decimal, st
 		WHERE id = $1::uuid
 		RETURNING `+flightColumns+`
 	`, id, price.StringFixed(2), status, departure.UTC(), arrival.UTC()))
+}
+
+func useExisting(out *Reservation, existing Reservation, flightID string, seatCount int) error {
+	reuse, err := rules.MatchExistingReserve(existing.Status, existing.FlightID, flightID, existing.SeatCount, seatCount)
+	if err != nil {
+		return err
+	}
+	if !reuse {
+		return ferr.AlreadyExists("резервация уже существует")
+	}
+	*out = existing
+	return nil
+}
+
+func findReservation(ctx context.Context, q pgdb.DBTX, bookingID string) (Reservation, bool, error) {
+	reservation, err := scanReservation(q.QueryRow(ctx, `
+		SELECT id::text, flight_id::text, booking_id::text, seat_count, status::text
+		FROM seat_reservations
+		WHERE booking_id = $1::uuid
+		FOR UPDATE
+	`, bookingID))
+	if err != nil {
+		var target *ferr.Error
+		if errors.As(err, &target) && target.Kind == ferr.KindNotFound {
+			return Reservation{}, false, nil
+		}
+		return Reservation{}, false, err
+	}
+	return reservation, true, nil
 }
 
 const flightColumns = `
