@@ -83,7 +83,7 @@ def numbers(flights):
 
 def redis_get(key):
     result = subprocess.run(
-        ["docker", "compose", "exec", "-T", "redis", "redis-cli", "GET", key],
+        ["docker", "compose", "exec", "-T", "redis-master", "redis-cli", "GET", key],
         cwd=ROOT,
         capture_output=True,
         text=True,

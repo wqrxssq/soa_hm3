@@ -58,6 +58,34 @@ func TestEvaluateRelease(t *testing.T) {
 	}
 }
 
+func TestMatchExistingReserve(t *testing.T) {
+	reuse, err := MatchExistingReserve("ACTIVE", "flight", "flight", 2, 2)
+	if err != nil || !reuse {
+		t.Fatalf("повтор той же резервации: %v %v", reuse, err)
+	}
+	tests := []struct {
+		name     string
+		status   string
+		flightID string
+		seats    int
+		kind     ferr.Kind
+	}{
+		{name: "other flight", status: "ACTIVE", flightID: "other", seats: 2, kind: ferr.KindAlreadyExists},
+		{name: "other seats", status: "ACTIVE", flightID: "flight", seats: 1, kind: ferr.KindAlreadyExists},
+		{name: "released", status: "RELEASED", flightID: "flight", seats: 2, kind: ferr.KindPrecondition},
+		{name: "expired", status: "EXPIRED", flightID: "flight", seats: 2, kind: ferr.KindPrecondition},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reuse, err := MatchExistingReserve(test.status, "flight", test.flightID, 2, test.seats)
+			var target *ferr.Error
+			if reuse || !errors.As(err, &target) || target.Kind != test.kind {
+				t.Fatalf("reuse=%v err=%v", reuse, err)
+			}
+		})
+	}
+}
+
 func TestDepartureDayUsesUTC(t *testing.T) {
 	utc := time.Date(2026, 4, 1, 23, 30, 0, 0, time.UTC)
 	moscow := time.Date(2026, 4, 2, 2, 30, 0, 0, time.FixedZone("MSK", 3*60*60))

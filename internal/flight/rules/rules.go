@@ -26,6 +26,23 @@ func EvaluateReserve(status string, available, requested int) error {
 	return nil
 }
 
+// MatchExistingReserve решает, можно ли повторить ReserveSeats, не списывая места ещё раз.
+func MatchExistingReserve(status, existingFlightID, flightID string, existingSeats, seatCount int) (bool, error) {
+	switch status {
+	case "ACTIVE":
+		if existingFlightID == flightID && existingSeats == seatCount {
+			return true, nil
+		}
+		return false, ferr.AlreadyExists("резервация уже существует")
+	case "RELEASED":
+		return false, ferr.Precondition("резервация уже снята")
+	case "EXPIRED":
+		return false, ferr.Precondition("резервация просрочена")
+	default:
+		return false, ferr.Precondition("резервацию нельзя повторить")
+	}
+}
+
 func EvaluateRelease(status string) (string, error) {
 	switch status {
 	case "ACTIVE":

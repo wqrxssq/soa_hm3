@@ -35,7 +35,7 @@ func main() {
 	}
 	defer st.Close()
 
-	kv := cache.NewRedis(cfg.RedisAddr)
+	kv := cache.NewSentinel(cfg.RedisMasterName, cfg.RedisSentinelAddrs)
 	if err := kv.Ping(ctx); err != nil {
 		log.Fatalf("redis: %v", err)
 	}

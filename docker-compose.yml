@@ -47,12 +47,45 @@ services:
     volumes:
       - ./db/flight/migration:/flyway/sql
 
-  redis:
+  redis-master:
     image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--protected-mode", "no"]
     ports:
       - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis-replica:
+    image: redis:7-alpine
+    command: ["redis-server", "--replicaof", "redis-master", "6379", "--appendonly", "yes", "--protected-mode", "no"]
+    ports:
+      - "6380:6379"
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli info replication | grep -q master_link_status:up"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis-sentinel:
+    image: redis:7-alpine
+    command: ["sh", "-c", "cp /etc/redis/sentinel.conf /tmp/sentinel.conf && exec redis-sentinel /tmp/sentinel.conf"]
+    volumes:
+      - ./docker/redis/sentinel.conf:/etc/redis/sentinel.conf:ro
+    ports:
+      - "26379:26379"
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 26379 sentinel get-master-addr-by-name flight-master | grep -Eq 'redis-master|[0-9]'"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -68,13 +101,14 @@ services:
       DATABASE_URL: postgres://flight:flight@flight-postgres:5432/flight?sslmode=disable
       GRPC_ADDR: ":9090"
       HEALTH_ADDR: ":8081"
-      REDIS_ADDR: redis:6379
+      REDIS_SENTINEL_ADDR: redis-sentinel:26379
+      REDIS_MASTER_NAME: flight-master
       CACHE_TTL: 5m
       FLIGHT_JWT_SECRET: dev-flight-jwt-secret
     depends_on:
       flyway-flight:
         condition: service_completed_successfully
-      redis:
+      redis-sentinel:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8081/health"]
@@ -93,6 +127,8 @@ services:
       HTTP_ADDR: ":8080"
       FLIGHT_GRPC_ADDR: flight:9090
       FLIGHT_JWT_SECRET: dev-flight-jwt-secret
+      CB_FAILURE_THRESHOLD: 5
+      CB_OPEN_TIMEOUT: 15s
     depends_on:
       flyway-booking:
         condition: service_completed_successfully

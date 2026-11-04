@@ -12,8 +12,12 @@ type RedisKV struct {
 	client *redis.Client
 }
 
-func NewRedis(addr string) *RedisKV {
-	return &RedisKV{client: redis.NewClient(&redis.Options{Addr: addr})}
+func NewSentinel(masterName string, sentinelAddrs []string) *RedisKV {
+	// Чтение и запись идут в мастер, который выбирает Sentinel.
+	return &RedisKV{client: redis.NewFailoverClient(&redis.FailoverOptions{
+		MasterName:    masterName,
+		SentinelAddrs: sentinelAddrs,
+	})}
 }
 
 func (r *RedisKV) Ping(ctx context.Context) error {

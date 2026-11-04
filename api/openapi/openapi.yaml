@@ -229,6 +229,7 @@ components:
             - FAILED_PRECONDITION
             - CONFLICT
             - UNAVAILABLE
+            - SERVICE_UNAVAILABLE
             - INTERNAL_ERROR
             - METHOD_NOT_ALLOWED
         message:

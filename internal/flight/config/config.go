@@ -3,16 +3,18 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	GRPCAddr    string
-	HealthAddr  string
-	DatabaseURL string
-	RedisAddr   string
-	CacheTTL    time.Duration
-	JWTSecret   string
+	GRPCAddr           string
+	HealthAddr         string
+	DatabaseURL        string
+	RedisSentinelAddrs []string
+	RedisMasterName    string
+	CacheTTL           time.Duration
+	JWTSecret          string
 }
 
 func Load() (Config, error) {
@@ -24,9 +26,9 @@ func Load() (Config, error) {
 	if secret == "" {
 		return Config{}, fmt.Errorf("FLIGHT_JWT_SECRET is required")
 	}
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		return Config{}, fmt.Errorf("REDIS_ADDR is required")
+	sentinels, masterName, err := redisSentinel()
+	if err != nil {
+		return Config{}, err
 	}
 	ttl, err := cacheTTL()
 	if err != nil {
@@ -41,13 +43,32 @@ func Load() (Config, error) {
 		healthAddr = ":8081"
 	}
 	return Config{
-		GRPCAddr:    grpcAddr,
-		HealthAddr:  healthAddr,
-		DatabaseURL: databaseURL,
-		RedisAddr:   redisAddr,
-		CacheTTL:    ttl,
-		JWTSecret:   secret,
+		GRPCAddr:           grpcAddr,
+		HealthAddr:         healthAddr,
+		DatabaseURL:        databaseURL,
+		RedisSentinelAddrs: sentinels,
+		RedisMasterName:    masterName,
+		CacheTTL:           ttl,
+		JWTSecret:          secret,
 	}, nil
+}
+
+func redisSentinel() ([]string, string, error) {
+	var addrs []string
+	for _, part := range strings.Split(os.Getenv("REDIS_SENTINEL_ADDR"), ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			addrs = append(addrs, part)
+		}
+	}
+	if len(addrs) == 0 {
+		return nil, "", fmt.Errorf("REDIS_SENTINEL_ADDR is required")
+	}
+	name := os.Getenv("REDIS_MASTER_NAME")
+	if name == "" {
+		name = "flight-master"
+	}
+	return addrs, name, nil
 }
 
 func cacheTTL() (time.Duration, error) {
