@@ -13,6 +13,8 @@ service FlightService {
   rpc GetFlight(GetFlightRequest) returns (Flight);
   rpc ReserveSeats(ReserveSeatsRequest) returns (SeatReservation);
   rpc ReleaseReservation(ReleaseReservationRequest) returns (SeatReservation);
+  // Меняет цену, статус и время. Номер рейса, маршрут, дату вылета и total_seats не меняет.
+  rpc UpdateFlight(UpdateFlightRequest) returns (Flight);
 }
 
 enum FlightStatus {
@@ -75,4 +77,12 @@ message SeatReservation {
   string booking_id = 3;
   int32 seat_count = 4;
   ReservationStatus status = 5;
+}
+
+message UpdateFlightRequest {
+  string id = 1;
+  string price = 2;
+  FlightStatus status = 3;
+  google.protobuf.Timestamp departure_at = 4;
+  google.protobuf.Timestamp arrival_at = 5;
 }

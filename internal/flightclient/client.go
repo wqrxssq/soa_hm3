@@ -2,6 +2,7 @@ package flightclient
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -14,6 +15,7 @@ import (
 	"flightbooking/internal/apperr"
 	"flightbooking/internal/booksvc"
 	flightv1 "flightbooking/internal/flightv1"
+	"flightbooking/internal/svcjwt"
 )
 
 type Client struct {
@@ -21,8 +23,16 @@ type Client struct {
 	conn *grpc.ClientConn
 }
 
-func Dial(addr string) (*Client, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func Dial(addr, secret string) (*Client, error) {
+	if secret == "" {
+		return nil, fmt.Errorf("FLIGHT_JWT_SECRET is required")
+	}
+	// JWT стоит ближе к транспорту: каждый вызов, включая будущие повторы, получает новый токен.
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(svcjwt.UnaryClientInterceptor(secret)),
+	)
 	if err != nil {
 		return nil, err
 	}

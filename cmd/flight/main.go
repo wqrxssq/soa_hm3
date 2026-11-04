@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os/signal"
@@ -12,10 +13,12 @@ import (
 
 	"google.golang.org/grpc"
 
+	"flightbooking/internal/flight/cache"
 	"flightbooking/internal/flight/config"
 	"flightbooking/internal/flight/grpcserver"
 	"flightbooking/internal/flight/store"
 	flightv1 "flightbooking/internal/flightv1"
+	"flightbooking/internal/svcjwt"
 )
 
 func main() {
@@ -32,12 +35,18 @@ func main() {
 	}
 	defer st.Close()
 
+	kv := cache.NewRedis(cfg.RedisAddr)
+	if err := kv.Ping(ctx); err != nil {
+		log.Fatalf("redis: %v", err)
+	}
+	defer kv.Close()
+
 	listener, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
-	grpcServer := grpc.NewServer()
-	flightv1.RegisterFlightServiceServer(grpcServer, grpcserver.New(st))
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(svcjwt.UnaryServerInterceptor(cfg.JWTSecret)))
+	flightv1.RegisterFlightServiceServer(grpcServer, grpcserver.New(cache.New(st, kv, cfg.CacheTTL, slog.Default())))
 	go func() {
 		log.Printf("flight grpc listening on %s", cfg.GRPCAddr)
 		if err := grpcServer.Serve(listener); err != nil {

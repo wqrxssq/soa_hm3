@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -18,13 +19,21 @@ import (
 
 var iataCode = regexp.MustCompile(`^[A-Z]{3}$`)
 
-type Server struct {
-	flightv1.UnimplementedFlightServiceServer
-	store *store.Store
+type catalog interface {
+	Search(ctx context.Context, origin, destination string, day *time.Time) ([]store.Flight, error)
+	Get(ctx context.Context, id string) (store.Flight, error)
+	Reserve(ctx context.Context, flightID string, seatCount int, bookingID string) (store.Reservation, error)
+	Release(ctx context.Context, bookingID string) (store.Reservation, error)
+	Update(ctx context.Context, id string, price decimal.Decimal, status string, departure, arrival time.Time) (store.Flight, error)
 }
 
-func New(st *store.Store) *Server {
-	return &Server{store: st}
+type Server struct {
+	flightv1.UnimplementedFlightServiceServer
+	flights catalog
+}
+
+func New(flights catalog) *Server {
+	return &Server{flights: flights}
 }
 
 func (s *Server) SearchFlights(ctx context.Context, req *flightv1.SearchFlightsRequest) (*flightv1.SearchFlightsResponse, error) {
@@ -34,7 +43,7 @@ func (s *Server) SearchFlights(ctx context.Context, req *flightv1.SearchFlightsR
 	if req.GetOrigin() == req.GetDestination() {
 		return nil, status.Error(codes.InvalidArgument, "аэропорты вылета и прилёта совпадают")
 	}
-	flights, err := s.store.Search(ctx, req.GetOrigin(), req.GetDestination(), utcDay(req.GetDate()))
+	flights, err := s.flights.Search(ctx, req.GetOrigin(), req.GetDestination(), utcDay(req.GetDate()))
 	if err != nil {
 		return nil, statusError(err)
 	}
@@ -49,7 +58,7 @@ func (s *Server) GetFlight(ctx context.Context, req *flightv1.GetFlightRequest) 
 	if _, err := uuid.Parse(req.GetId()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, "некорректный id рейса")
 	}
-	flight, err := s.store.Get(ctx, req.GetId())
+	flight, err := s.flights.Get(ctx, req.GetId())
 	if err != nil {
 		return nil, statusError(err)
 	}
@@ -66,7 +75,7 @@ func (s *Server) ReserveSeats(ctx context.Context, req *flightv1.ReserveSeatsReq
 	if req.GetSeatCount() < 1 {
 		return nil, status.Error(codes.InvalidArgument, "количество мест должно быть положительным")
 	}
-	reservation, err := s.store.Reserve(ctx, req.GetFlightId(), int(req.GetSeatCount()), req.GetBookingId())
+	reservation, err := s.flights.Reserve(ctx, req.GetFlightId(), int(req.GetSeatCount()), req.GetBookingId())
 	if err != nil {
 		return nil, statusError(err)
 	}
@@ -77,11 +86,38 @@ func (s *Server) ReleaseReservation(ctx context.Context, req *flightv1.ReleaseRe
 	if _, err := uuid.Parse(req.GetBookingId()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, "некорректный booking_id")
 	}
-	reservation, err := s.store.Release(ctx, req.GetBookingId())
+	reservation, err := s.flights.Release(ctx, req.GetBookingId())
 	if err != nil {
 		return nil, statusError(err)
 	}
 	return toProtoReservation(reservation), nil
+}
+
+func (s *Server) UpdateFlight(ctx context.Context, req *flightv1.UpdateFlightRequest) (*flightv1.Flight, error) {
+	if _, err := uuid.Parse(req.GetId()); err != nil {
+		return nil, status.Error(codes.InvalidArgument, "некорректный id рейса")
+	}
+	price, err := decimal.NewFromString(req.GetPrice())
+	if err != nil || !price.IsPositive() {
+		return nil, status.Error(codes.InvalidArgument, "некорректная цена")
+	}
+	statusName, ok := flightStatusName(req.GetStatus())
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "неизвестный статус рейса")
+	}
+	if req.GetDepartureAt() == nil || req.GetArrivalAt() == nil {
+		return nil, status.Error(codes.InvalidArgument, "нужны время вылета и прилёта")
+	}
+	departure := req.GetDepartureAt().AsTime()
+	arrival := req.GetArrivalAt().AsTime()
+	if !arrival.After(departure) {
+		return nil, status.Error(codes.InvalidArgument, "прилёт должен быть позже вылета")
+	}
+	flight, err := s.flights.Update(ctx, req.GetId(), price, statusName, departure, arrival)
+	if err != nil {
+		return nil, statusError(err)
+	}
+	return toProtoFlight(flight), nil
 }
 
 func utcDay(ts *timestamppb.Timestamp) *time.Time {
@@ -130,6 +166,21 @@ func flightStatus(value string) flightv1.FlightStatus {
 		return flightv1.FlightStatus_FLIGHT_STATUS_COMPLETED
 	default:
 		return flightv1.FlightStatus_FLIGHT_STATUS_UNSPECIFIED
+	}
+}
+
+func flightStatusName(value flightv1.FlightStatus) (string, bool) {
+	switch value {
+	case flightv1.FlightStatus_FLIGHT_STATUS_SCHEDULED:
+		return "SCHEDULED", true
+	case flightv1.FlightStatus_FLIGHT_STATUS_DEPARTED:
+		return "DEPARTED", true
+	case flightv1.FlightStatus_FLIGHT_STATUS_CANCELLED:
+		return "CANCELLED", true
+	case flightv1.FlightStatus_FLIGHT_STATUS_COMPLETED:
+		return "COMPLETED", true
+	default:
+		return "", false
 	}
 }
 

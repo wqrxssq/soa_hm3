@@ -2,9 +2,9 @@
 
 Два сервиса: Booking принимает REST, Flight хранит рейсы и отдаёт gRPC. У каждого своя PostgreSQL.
 
-Стек: Go, OpenAPI, gRPC, PostgreSQL, Flyway.
+Стек: Go, OpenAPI, gRPC, PostgreSQL, Redis, Flyway.
 
-В этом проходе есть транзакционный резерв мест. Аутентификация между сервисами, Redis, retry и circuit breaker появятся следующими проходами.
+Вызовы Flight подписаны служебным JWT. Выдача рейсов кешируется в Redis. Retry и circuit breaker появятся следующим проходом.
 
 ## Запуск
 
@@ -12,9 +12,11 @@
 docker compose up --build
 ```
 
-Booking слушает `http://localhost:8080`. Служебный health Flight — `http://localhost:8081/health`, gRPC — `localhost:9090`.
+Booking слушает `http://localhost:8080`. Служебный health Flight — `http://localhost:8081/health`, gRPC — `localhost:9090`. Redis — `localhost:6379`.
 
 Базы: `localhost:5432` (`booking` / `booking`) и `localhost:5433` (`flight` / `flight`).
+
+`FLIGHT_JWT_SECRET` общий для обоих сервисов. Пустой секрет не даёт процессу стартануть. `CACHE_TTL` задаёт время жизни ключей кеша, по умолчанию 5 минут, допустимый диапазон — от 5 до 10 минут. В логе Flight у чтения кеша есть `result=hit` или `result=miss` и сам ключ.
 
 Проверка:
 
@@ -100,5 +102,7 @@ erDiagram
 REST: `api/openapi/openapi.yaml`. gRPC: `api/proto/flight/v1/flight.proto`.
 
 `user_id` клиент передаёт сам. Сервис не заводит пользователей и не проверяет владельца при чтении и отмене бронирования.
+
+`UpdateFlight` есть только в gRPC. Метод меняет цену, статус и время вылета в пределах той же календарной даты. Номер рейса, маршрут и число мест он не меняет.
 
 Демо-рейсы вставляет миграция Flight. `SU1001` (`00000000-0000-4000-8000-000000000001`) — пять мест VKO→LED на 2026-04-01.
