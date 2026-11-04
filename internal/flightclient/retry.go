@@ -11,11 +11,11 @@ import (
 
 var retryWaits = []time.Duration{100 * time.Millisecond, 200 * time.Millisecond}
 
-func UnaryRetryInterceptor() grpc.UnaryClientInterceptor {
-	return newRetry(sleepContext)
+func UnaryRetryInterceptor(attemptTimeout time.Duration) grpc.UnaryClientInterceptor {
+	return newRetry(attemptTimeout, sleepContext)
 }
 
-func newRetry(sleep func(context.Context, time.Duration) error) grpc.UnaryClientInterceptor {
+func newRetry(attemptTimeout time.Duration, sleep func(context.Context, time.Duration) error) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		var err error
 		for attempt := 0; attempt < 3; attempt++ {
@@ -24,13 +24,19 @@ func newRetry(sleep func(context.Context, time.Duration) error) grpc.UnaryClient
 					return status.FromContextError(err).Err()
 				}
 			}
-			err = invoker(ctx, method, req, reply, cc, opts...)
+			err = invokeOnce(ctx, attemptTimeout, method, req, reply, cc, invoker, opts...)
 			if !transportFailure(err) {
 				return err
 			}
 		}
 		return err
 	}
+}
+
+func invokeOnce(ctx context.Context, timeout time.Duration, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return invoker(ctx, method, req, reply, cc, opts...)
 }
 
 func sleepContext(ctx context.Context, wait time.Duration) error {

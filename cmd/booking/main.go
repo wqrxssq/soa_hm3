@@ -36,6 +36,7 @@ func main() {
 		Secret:             cfg.JWTSecret,
 		CBFailureThreshold: cfg.CBFailureThreshold,
 		CBOpenTimeout:      cfg.CBOpenTimeout,
+		CallTimeout:        cfg.FlightCallTimeout,
 		Logger:             slog.Default(),
 	})
 	if err != nil {

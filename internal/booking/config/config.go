@@ -14,6 +14,7 @@ type Config struct {
 	JWTSecret          string
 	CBFailureThreshold int
 	CBOpenTimeout      time.Duration
+	FlightCallTimeout  time.Duration
 }
 
 func Load() (Config, error) {
@@ -33,6 +34,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	callTimeout := 2 * time.Second
+	if raw := os.Getenv("FLIGHT_CALL_TIMEOUT"); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed <= 0 {
+			return Config{}, fmt.Errorf("FLIGHT_CALL_TIMEOUT must be a positive duration")
+		}
+		callTimeout = parsed
+	}
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
 		addr = ":8080"
@@ -44,6 +53,7 @@ func Load() (Config, error) {
 		JWTSecret:          secret,
 		CBFailureThreshold: threshold,
 		CBOpenTimeout:      openTimeout,
+		FlightCallTimeout:  callTimeout,
 	}, nil
 }
 

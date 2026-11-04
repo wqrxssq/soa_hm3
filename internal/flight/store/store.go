@@ -60,7 +60,7 @@ func (s *Store) Search(ctx context.Context, origin, destination string, day *tim
 		WHERE origin_iata = $1
 		  AND destination_iata = $2
 		  AND status = 'SCHEDULED'
-		  AND ($3::date IS NULL OR departure_date = $3::date)
+		  AND ($3::date IS NULL OR (departure_at AT TIME ZONE 'UTC')::date = $3::date)
 		ORDER BY departure_at, flight_number
 	`, origin, destination, dateArg)
 	if err != nil {

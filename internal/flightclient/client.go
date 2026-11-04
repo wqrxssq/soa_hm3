@@ -29,6 +29,7 @@ type DialConfig struct {
 	Secret             string
 	CBFailureThreshold int
 	CBOpenTimeout      time.Duration
+	CallTimeout        time.Duration
 	Logger             *slog.Logger
 }
 
@@ -36,13 +37,16 @@ func Dial(cfg DialConfig) (*Client, error) {
 	if cfg.Secret == "" {
 		return nil, fmt.Errorf("FLIGHT_JWT_SECRET is required")
 	}
+	if cfg.CallTimeout <= 0 {
+		return nil, fmt.Errorf("FLIGHT_CALL_TIMEOUT must be positive")
+	}
 	// Breaker снаружи retry, JWT внутри каждого повтора.
 	conn, err := grpc.NewClient(
 		cfg.Addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithChainUnaryInterceptor(
 			UnaryBreakerInterceptor(cfg.CBFailureThreshold, cfg.CBOpenTimeout, cfg.Logger),
-			UnaryRetryInterceptor(),
+			UnaryRetryInterceptor(cfg.CallTimeout),
 			svcjwt.UnaryClientInterceptor(cfg.Secret),
 		),
 	)

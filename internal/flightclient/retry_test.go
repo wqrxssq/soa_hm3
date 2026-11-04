@@ -13,7 +13,7 @@ import (
 func TestRetryStopsAfterThreeTransportFailures(t *testing.T) {
 	var waits []time.Duration
 	var calls int
-	interceptor := newRetry(func(_ context.Context, wait time.Duration) error {
+	interceptor := newRetry(time.Second, func(_ context.Context, wait time.Duration) error {
 		waits = append(waits, wait)
 		return nil
 	})
@@ -32,7 +32,7 @@ func TestRetryStopsAfterThreeTransportFailures(t *testing.T) {
 
 func TestRetryReturnsOnSecondSuccess(t *testing.T) {
 	var calls int
-	interceptor := newRetry(func(context.Context, time.Duration) error { return nil })
+	interceptor := newRetry(time.Second, func(context.Context, time.Duration) error { return nil })
 	err := interceptor(context.Background(), "/m", nil, nil, nil,
 		func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error {
 			calls++
@@ -43,6 +43,30 @@ func TestRetryReturnsOnSecondSuccess(t *testing.T) {
 		})
 	if err != nil || calls != 2 {
 		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+}
+
+func TestRetryCutsHungAttemptByTimeout(t *testing.T) {
+	var calls int
+	interceptor := newRetry(20*time.Millisecond, func(context.Context, time.Duration) error { return nil })
+	started := time.Now()
+	err := interceptor(context.Background(), "/m", nil, nil, nil,
+		func(ctx context.Context, _ string, _, _ any, _ *grpc.ClientConn, _ ...grpc.CallOption) error {
+			calls++
+			if _, ok := ctx.Deadline(); !ok {
+				t.Fatal("у попытки нет дедлайна")
+			}
+			if calls == 1 {
+				<-ctx.Done()
+				return status.FromContextError(ctx.Err()).Err()
+			}
+			return nil
+		})
+	if err != nil || calls != 2 {
+		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("попытка не прервана: %v", elapsed)
 	}
 }
 
@@ -58,7 +82,7 @@ func TestRetrySkipsBusinessErrors(t *testing.T) {
 	for _, code := range codesToKeep {
 		t.Run(code.String(), func(t *testing.T) {
 			var calls int
-			interceptor := newRetry(func(context.Context, time.Duration) error {
+			interceptor := newRetry(time.Second, func(context.Context, time.Duration) error {
 				t.Fatal("пауза перед бизнес-ошибкой")
 				return nil
 			})
@@ -75,7 +99,7 @@ func TestRetrySkipsBusinessErrors(t *testing.T) {
 }
 
 func TestRetryStopsWhenContextEnds(t *testing.T) {
-	interceptor := newRetry(func(ctx context.Context, _ time.Duration) error {
+	interceptor := newRetry(time.Second, func(ctx context.Context, _ time.Duration) error {
 		return context.Canceled
 	})
 	var calls int

@@ -18,7 +18,7 @@ Booking слушает `http://localhost:8080`. Служебный health Flight
 
 `FLIGHT_JWT_SECRET` общий для обоих сервисов. Пустой секрет не даёт процессу стартануть. `CACHE_TTL` задаёт время жизни ключей кеша, по умолчанию 5 минут, допустимый диапазон — от 5 до 10 минут. В логе Flight у чтения кеша есть `result=hit` или `result=miss` и сам ключ.
 
-Повтор идет только при `UNAVAILABLE` и `DEADLINE_EXCEEDED`: паузы перед второй и третьей попыткой — 100ms и 200ms. `CB_FAILURE_THRESHOLD` по умолчанию 5, `CB_OPEN_TIMEOUT` — 15s. В логе Booking переход пишется как `CLOSED → OPEN`. Пока breaker открыт, клиент получает 503 `SERVICE_UNAVAILABLE`.
+Повтор идет только при `UNAVAILABLE` и `DEADLINE_EXCEEDED`: паузы перед второй и третьей попыткой — 100ms и 200ms. Каждая попытка ограничена `FLIGHT_CALL_TIMEOUT` (по умолчанию 2s), поэтому зависший Flight даёт `DEADLINE_EXCEEDED` и повтор, а не бесконечное ожидание. `CB_FAILURE_THRESHOLD` по умолчанию 5, `CB_OPEN_TIMEOUT` — 15s. В логе Booking переход пишется как `CLOSED → OPEN`. Пока breaker открыт, клиент получает 503 `SERVICE_UNAVAILABLE`.
 
 Проверка:
 
@@ -76,7 +76,7 @@ make generate
 
 ## Схема данных
 
-У рейса уникальна пара `(flight_number, departure_date)`. `flight_id` и `booking_id` связывают сервисы без внешнего ключа. Тот же текст лежит в [docs/er.mmd](docs/er.mmd).
+У рейса уникальна пара из номера и даты вылета по UTC: уникальный индекс `flights_number_day_uq` по `(flight_number, (departure_at AT TIME ZONE 'UTC')::date)`. Отдельного столбца с датой нет, потому что она выводится из `departure_at`. `flight_id` и `booking_id` связывают сервисы без внешнего ключа. Тот же текст лежит в [docs/er.mmd](docs/er.mmd).
 
 ```mermaid
 erDiagram
@@ -90,7 +90,6 @@ erDiagram
         varchar flight_number
         char origin_iata
         char destination_iata
-        date departure_date
         timestamptz departure_at
         timestamptz arrival_at
         int total_seats

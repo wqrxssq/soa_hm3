@@ -148,7 +148,7 @@ func TestBreakerCountsRetryAsOneCall(t *testing.T) {
 		return nil
 	}
 	jwt := svcjwt.UnaryClientInterceptor("secret")
-	retry := newRetry(func(context.Context, time.Duration) error { return nil })
+	retry := newRetry(time.Second, func(context.Context, time.Duration) error { return nil })
 	br := newBreaker(1, time.Second, slog.New(slog.DiscardHandler), time.Now)
 	call := func() error {
 		return br.intercept(context.Background(), "/flight.v1.FlightService/GetFlight", nil, nil, nil,
